@@ -43,17 +43,19 @@ function(add_cxx_compile_options)
   endforeach()
 endfunction()
 
+message("Foo")
 # using Clang or GCC
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
     CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" OR
     CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 
+  message("bar")
   add_compile_options(
     $<$<CONFIG:Debug>:-g>
     $<$<CONFIG:Release>:-DNDEBUG>
     -Wall
     -Werror
-    -msse4.2
+    -march=native
     -Wno-sign-compare
     )
 
@@ -83,7 +85,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
       -Wvla
       -fdata-sections
       -ffunction-sections
-      -mcrc32
       # disabled pending folly update
       # -Wshadow
       )

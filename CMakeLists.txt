@@ -21,7 +21,7 @@ set(PACKAGE_VERSION "0.1")
 set(GIT_EXISTS FALSE)
 if (EXISTS ${CMAKE_SOURCE_DIR}/.git)
   set(GIT_EXISTS TRUE)
-endif ()
+endif()
 
 project(${PACKAGE_NAME} LANGUAGES C CXX ASM)
 

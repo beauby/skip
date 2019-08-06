@@ -187,9 +187,6 @@ append_flags(cc_args "-D" ${prop_defs})
 get_property(prop_opts TARGET _dummy_exe.${PHASE} PROPERTY COMPILE_OPTIONS)
 list(APPEND cc_args ${prop_opts})
 
-# This option is GCC only
-list(REMOVE_ITEM cc_args ld_args -mcrc32)
-
 if(DARWIN)
   list(APPEND ld_args -dead_strip)
   list(APPEND cc_args -isysroot ${CMAKE_OSX_SYSROOT})
