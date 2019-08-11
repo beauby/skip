@@ -20,21 +20,6 @@ if(GTEST_FOUND)
   target_include_directories(gtest_main PUBLIC ${GTEST_INCLUDE})
 
   target_link_libraries(gtest_main INTERFACE ${GFLAGS_LIBRARY})
-
-  return()
+else()
+  message(FATAL_ERROR "Dependency gtest not found.")
 endif()
-
-if(DISABLE_TP_GTEST)
-  message(FATAL_ERROR "gtest not found and third-party disabled")
-endif()
-
-message("Using third-party gtest")
-
-add_library(gtest_main STATIC
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/googletest/src/gtest-all.cc"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/googletest/src/gtest_main.cc"
-  )
-target_include_directories(gtest_main PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/googletest")
-target_include_directories(gtest_main PUBLIC
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/googletest/include")
