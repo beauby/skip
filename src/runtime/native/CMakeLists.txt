@@ -84,7 +84,7 @@ if(NOT APPLE)
   target_link_libraries(skip_runtime.${PHASE} rt)
 endif()
 target_link_libraries(skip_runtime.${PHASE} jemalloc)
-target_include_directories(skip_runtime.${PHASE} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIR} ${LIBGLOG_INCLUDE_DIR})
+target_include_directories(skip_runtime.${PHASE} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIR})
 
 add_custom_target(skip_runtime.${PHASE}.dep DEPENDS skip_runtime.${PHASE})
 
@@ -164,7 +164,6 @@ set(ld_args
   $<TARGET_LINKER_FILE:skip_runtime.${PHASE}>
   $<TARGET_LINKER_FILE:GTest::gtest_main>
   ${FOLLY_LIBRARIES}
-  ${LIBGLOG_LIBRARY}
   ${LIBUNWIND_LIBRARIES}
   ${ICU4C_LIBRARIES}
   ${JEMALLOC_LIBRARY}
