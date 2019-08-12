@@ -16,40 +16,6 @@ if(PCRE_FOUND)
   add_library(pcre INTERFACE)
   target_include_directories(pcre INTERFACE ${PCRE_INCLUDE})
   target_link_libraries(pcre INTERFACE ${PCRE_LIBRARY})
-  return()
+else()
+  message(FATAL_ERROR "Dependency pcre not found.")
 endif()
-
-if(DISABLE_TP_PCRE)
-  message(FATAL_ERROR "pcre not found and third-party disabled")
-endif()
-
-message("Using third-party pcre")
-
-include(ExternalProject)
-
-set(PCRE_PREFIX ${CMAKE_BINARY_DIR}/third-party/install)
-
-set(PCRE_LIBRARY ${PCRE_PREFIX}/lib/libpcre.a CACHE PATH "" FORCE)
-
-ExternalProject_Add(
-  pcre_sub
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src
-  INSTALL_DIR ${PCRE_PREFIX}
-  BUILD_COMMAND ${CMAKE_MAKE_PROGRAM} pcre
-  INSTALL_COMMAND ${CMAKE_MAKE_PROGRAM} install
-  CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} # Copy over the build type (debug, release)
-    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-    -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> # Install locally
-    -DPCRE_BUILD_TESTS=OFF # Don't need pcre's tests
-    -DPCRE_SHOW_REPORT=OFF # Turn off console spam
-    -DPCRE_SUPPORT_UTF=ON # Support 'u' modifier
-    -Wno-dev # Don't need to know about cmake warnings that we can't do anything about
-  BUILD_BYPRODUCTS ${PCRE_LIBRARY} ${PCRE_PREFIX}/include/pcre.h
-)
-
-add_library(pcre INTERFACE)
-add_dependencies(pcre pcre_sub)
-target_include_directories(pcre INTERFACE ${PCRE_PREFIX}/include)
-target_link_libraries(pcre INTERFACE ${PCRE_LIBRARY})
