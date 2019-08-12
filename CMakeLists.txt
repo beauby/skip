@@ -43,11 +43,6 @@ if(USE_JEMALLOC)
   add_definitions(-DUSE_JEMALLOC)
 endif()
 
-set(ENABLE_ASYNC_MYSQL OFF)
-set(ENABLE_MCROUTER OFF)
-set(ENABLE_GOOGLETEST ON)
-set(JEMALLOC_ENABLED ON)
-
 # In addition to running js tests we use node to build the parsetree.
 find_package(Node)
 
