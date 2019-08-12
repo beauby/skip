@@ -82,10 +82,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
       # -Wshadow
       )
 
-    if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.1)
-      add_compile_options(-DFOLLY_HAVE_MALLOC_H)
-    endif()
-
     if(STATIC_CXX_LIB)
       link_libraries(-static-libgcc -static-libstdc++)
     endif()

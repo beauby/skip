@@ -77,7 +77,7 @@ add_library(skip_runtime.${PHASE} ${SKIP_RUNTIME_SOURCES})
 target_compile_options(skip_runtime.${PHASE} PRIVATE -Wmissing-declarations)
 target_link_libraries(skip_runtime.${PHASE} pthread gtest_main)
 target_link_libraries(skip_runtime.${PHASE} ${Boost_LIBRARIES})
-target_link_libraries(skip_runtime.${PHASE} folly)
+target_link_libraries(skip_runtime.${PHASE} Folly::folly)
 target_link_libraries(skip_runtime.${PHASE} icui18n icuuc icudata pcre)
 set_target_properties(skip_runtime.${PHASE} PROPERTIES OUTPUT_NAME skip_runtime)
 if(NOT APPLE)
@@ -163,11 +163,9 @@ append_target_flags(cc_args _dummy_exe.${PHASE})
 set(ld_args
   $<TARGET_LINKER_FILE:skip_runtime.${PHASE}>
   $<TARGET_LINKER_FILE:gtest_main>
-  ${FOLLY_LIBRARY}
+  ${FOLLY_LIBRARIES}
   ${LIBGLOG_LIBRARY}
-  ${GFLAGS_LIBRARY}
   ${LIBUNWIND_LIBRARIES}
-  ${DOUBLE_CONVERSION_LIBRARY}
   ${ICU4C_LIBRARIES}
   ${JEMALLOC_LIBRARY}
   ${PCRE_LIBRARY}
@@ -253,4 +251,4 @@ add_library(
   STATIC
   src/sk_standalone.cpp
 )
-target_link_libraries(sk_standalone.${PHASE} folly skip_runtime.${PHASE})
+target_link_libraries(sk_standalone.${PHASE} Folly::folly skip_runtime.${PHASE})
