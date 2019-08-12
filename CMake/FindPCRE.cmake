@@ -1,19 +1,16 @@
 find_path(PCRE_INCLUDE NAMES pcre.h)
 find_library(PCRE_LIBRARY NAMES libpcre.a libpcre.dylib libpcre.so)
+
 if(PCRE_INCLUDE AND PCRE_LIBRARY)
   set(PCRE_FOUND YES CACHE BOOL "" FORCE)
-else()
-  set(PCRE_FOUND NO CACHE BOOL "" FORCE)
-endif()
-
-if(PCRE_FOUND)
-  message("Using built-in pcre: ${PCRE_INCLUDE} ${PCRE_LIBRARY}")
-
-  add_custom_target(pcre_sub)
-
   add_library(pcre INTERFACE)
   target_include_directories(pcre INTERFACE ${PCRE_INCLUDE})
   target_link_libraries(pcre INTERFACE ${PCRE_LIBRARY})
+  message(STATUS "Found pcre: ${PCRE_LIBRARY}")
 else()
-  message(FATAL_ERROR "Dependency pcre not found.")
+  if(PCRE_FIND_REQUIRED)
+    message(FATAL_ERROR "Could not find pcre")
+  else()
+    message(STATUS "Could not find pcre")
+  endif()
 endif()

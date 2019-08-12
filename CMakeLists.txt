@@ -39,10 +39,6 @@ if (APPLE)
   set(OPENSSL_ROOT_DIR "/usr/local/opt/openssl")
 endif ()
 
-if(USE_JEMALLOC)
-  add_definitions(-DUSE_JEMALLOC)
-endif()
-
 # In addition to running js tests we use node to build the parsetree.
 find_package(Node)
 
@@ -68,15 +64,41 @@ set(SKIP_COMPILE_FLAGS --nbe-flags=--nogoto)
 set(LKG_DIR ${CMAKE_SOURCE_DIR}/lkg)
 set(TOOLS_DIR ${CMAKE_SOURCE_DIR}/tools)
 
-add_subdirectory(third-party)
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 find_package(Threads REQUIRED)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR
+    CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR
+    CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+  set(Boost_USE_RELEASE_LIBS TRUE)
+else()
+  set(Boost_USE_DEBUG_LIBS TRUE)
+endif()
+find_package(Boost 1.53 REQUIRED COMPONENTS thread system context filesystem)
+
 # Folly's cmake config does not ensure its dependencies are met, hence we have
 # to ensure first that glog is present (and Threads, but we depend on it
 # already)
 find_package(glog REQUIRED)
+
 find_package(folly REQUIRED)
+
 find_package(GTest REQUIRED)
+
+find_package(PCRE MODULE REQUIRED)
+
+find_package(ICU MODULE REQUIRED)
+
+if(USE_JEMALLOC)
+  find_package(jemalloc MODULE REQUIRED)
+  add_definitions(-DUSE_JEMALLOC)
+endif()
+
+# libunwind doesn't work on OSX
+if(NOT APPLE)
+  find_package(libunwind MODULE REQUIRED)
+endif()
+
 add_subdirectory(lkg)
 
 function(fetch_depends VAR BACKEND SKIP_TARGET)

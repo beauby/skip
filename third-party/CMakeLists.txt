@@ -1,5 +1,0 @@
-add_subdirectory(boost)
-add_subdirectory(icu)
-add_subdirectory(jemalloc)
-add_subdirectory(libunwind)
-add_subdirectory(pcre)
