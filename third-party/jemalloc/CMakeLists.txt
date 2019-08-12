@@ -1,12 +1,10 @@
-if(NOT DEFINED JEMALLOC_FOUND)
-  find_path(JEMALLOC_INCLUDE jemalloc/jemalloc.h)
-  find_library(JEMALLOC_LIBRARY jemalloc)
+find_path(JEMALLOC_INCLUDE jemalloc/jemalloc.h)
+find_library(JEMALLOC_LIBRARY jemalloc)
 
-  if (JEMALLOC_INCLUDE AND JEMALLOC_LIBRARY)
-    set(JEMALLOC_FOUND YES CACHE BOOL "" FORCE)
-  else()
-    set(JEMALLOC_FOUND NO CACHE BOOL "" FORCE)
-  endif()
+if (JEMALLOC_INCLUDE AND JEMALLOC_LIBRARY)
+  set(JEMALLOC_FOUND YES CACHE BOOL "" FORCE)
+else()
+  set(JEMALLOC_FOUND NO CACHE BOOL "" FORCE)
 endif()
 
 if(JEMALLOC_FOUND)

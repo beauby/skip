@@ -1,1 +1,1 @@
-find_package(folly CONFIG REQUIRED)
+find_package(folly REQUIRED)
