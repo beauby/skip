@@ -2,7 +2,7 @@ add_library(native.runtime.testutil
   "testutil.cpp"
   )
 target_link_libraries(native.runtime.testutil skip_runtime.tests)
-target_link_libraries(native.runtime.testutil GTest::gtest_main)
+target_link_libraries(native.runtime.testutil GTest::Main)
 
 add_custom_target(test.native.runtime.tests)
 add_dependencies(test test.native.runtime.tests)
@@ -20,7 +20,7 @@ foreach(test ${cpp_tests})
   add_executable(${build_target} EXCLUDE_FROM_ALL ${test})
   set_target_properties(${build_target} PROPERTIES OUTPUT_NAME ${test_we})
   target_link_libraries(${build_target} native.runtime.testutil skip_runtime.tests
-    ${LIBEVENT_LIBRARY} ${Boost_LIBRARIES} ${DL_LIBRARIES} GTest::gtest_main)
+    ${LIBEVENT_LIBRARY} ${Boost_LIBRARIES} ${DL_LIBRARIES} GTest::Main)
 
   # This doesn't actually create the .failing_native file until we
   # start trying to run the test.  That means if it fails to compile

@@ -69,6 +69,14 @@ set(LKG_DIR ${CMAKE_SOURCE_DIR}/lkg)
 set(TOOLS_DIR ${CMAKE_SOURCE_DIR}/tools)
 
 add_subdirectory(third-party)
+set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+find_package(Threads REQUIRED)
+# Folly's cmake config does not ensure its dependencies are met, hence we have
+# to ensure first that glog is present (and Threads, but we depend on it
+# already)
+find_package(glog REQUIRED)
+find_package(folly REQUIRED)
+find_package(GTest REQUIRED)
 add_subdirectory(lkg)
 
 function(fetch_depends VAR BACKEND SKIP_TARGET)
