@@ -1013,14 +1013,18 @@ mutable class Context{
   readonly fun unsafeGetLazyDir(dirName: DirName): LazyDir {
     this.unsafeGetDir(dirName) match {
     | d @ LazyDir _ -> d
-    | _ -> invariant_violation("unsafeGetLazyDir: Was expecting LazyDir")
+    | _ ->
+      invariant_violation(`unsafeGetLazyDir: Was expecting LazyDir: ${dirName}`)
     }
   }
 
   readonly fun unsafeGetEagerDir(dirName: DirName): EagerDir {
     this.unsafeGetDir(dirName) match {
     | d @ EagerDir _ -> d
-    | _ -> invariant_violation("unsafeGetEagerDir: Was expecting EagerDir")
+    | _ ->
+      invariant_violation(
+        `unsafeGetEagerDir: Was expecting EagerDir: ${dirName}`,
+      )
     }
   }
 
@@ -1030,7 +1034,10 @@ mutable class Context{
     | Some(DeletedDir _) ->
       None()
     | Some(d @ LazyDir _) -> Some(d)
-    | _ -> invariant_violation("unsafeMaybeGetLazyDir: Was expecting LazyDir")
+    | _ ->
+      invariant_violation(
+        `unsafeMaybeGetLazyDir: Was expecting LazyDir: ${dirName}`,
+      )
     }
   }
 
@@ -1040,21 +1047,25 @@ mutable class Context{
     | Some(DeletedDir _) ->
       None()
     | Some(d @ EagerDir _) -> Some(d)
-    | _ -> invariant_violation("unsafeMaybeGetEagerDir: Was expecting EagerDir")
+    | _ ->
+      invariant_violation(
+        `unsafeMaybeGetEagerDir: Was expecting EagerDir: ${dirName}`,
+      )
     }
   }
 
   mutable fun getLazyDir(dirName: DirName): LazyDir {
     this.getDir(dirName) match {
     | d @ LazyDir _ -> d
-    | _ -> invariant_violation("getLazyDir: Was expecting LazyDir")
+    | _ -> invariant_violation(`getLazyDir: Was expecting LazyDir: ${dirName}`)
     }
   }
 
   mutable fun getEagerDir(dirName: DirName): EagerDir {
     this.getDir(dirName) match {
     | d @ EagerDir _ -> d
-    | _ -> invariant_violation("getEagerDir: Was expecting EagerDir")
+    | _ ->
+      invariant_violation(`getEagerDir: Was expecting EagerDir: ${dirName}`)
     }
   }
 
@@ -1064,7 +1075,8 @@ mutable class Context{
     | Some(DeletedDir _) ->
       None()
     | Some(d @ LazyDir _) -> Some(d)
-    | _ -> invariant_violation("maybeGetLazyDir: Was expecting LazyDir")
+    | _ ->
+      invariant_violation(`maybeGetLazyDir: Was expecting LazyDir: ${dirName}`)
     }
   }
 
@@ -1074,7 +1086,10 @@ mutable class Context{
     | Some(DeletedDir _) ->
       None()
     | Some(d @ EagerDir _) -> Some(d)
-    | _ -> invariant_violation("maybeGetEagerDir: Was expecting EagerDir")
+    | _ ->
+      invariant_violation(
+        `maybeGetEagerDir: Was expecting EagerDir for ${dirName}`,
+      )
     }
   }
 

@@ -130,9 +130,20 @@ class TomlManifest{
   bin: Array<TomlBinary>,
   lib: TomlLibrary,
 } {
-  static fun read(path: String): TomlManifest {
-    basePath = Path.dirname(path);
-    toml = TOML.decode(FileSystem.readTextFile(path));
+  static fun read(manifest_path: String): TomlManifest {
+    str = FileSystem.readTextFile(manifest_path);
+
+    static::fromString(str, manifest_path)
+  }
+
+  static fun fromString(str: String, manifest_path: String): TomlManifest {
+    toml = TOML.decode(str);
+
+    static::fromTOML(toml, manifest_path)
+  }
+
+  static fun fromTOML(toml: TOML.Table, manifest_path: String): TomlManifest {
+    base_path = Path.dirname(manifest_path);
     package = toml.getTable("package");
     name = package.getString("name");
     version = package.getString("version");
@@ -145,19 +156,19 @@ class TomlManifest{
 
     dependencies = toml.maybeGetTable("dependencies") match {
     | Some(TOML.Table(t)) ->
-      t.map((_, v) -> TomlDependency::fromTOML(basePath, v))
+      t.map((_, v) -> TomlDependency::fromTOML(base_path, v))
     | None() -> Map[]
     };
 
     dev_dependencies = toml.maybeGetTable("dev-dependencies") match {
     | Some(TOML.Table(t)) ->
-      t.map((_, v) -> TomlDependency::fromTOML(basePath, v))
+      t.map((_, v) -> TomlDependency::fromTOML(base_path, v))
     | None() -> Map[]
     };
 
     build_dependencies = toml.maybeGetTable("build-dependencies") match {
     | Some(bDependencies) ->
-      bDependencies.map.map((_, v) -> TomlDependency::fromTOML(basePath, v))
+      bDependencies.map.map((_, v) -> TomlDependency::fromTOML(base_path, v))
     | _ -> Map[]
     };
 
@@ -191,8 +202,15 @@ class Manifest(
   targets: Array<Target>,
   original: TomlManifest,
 ) {
-  static fun read(path: String): Manifest {
-    static::fromTomlManifest(TomlManifest::read(path), path)
+  static fun fromString(str: String, manifest_path: String): Manifest {
+    static::fromTomlManifest(
+      TomlManifest::fromString(str, manifest_path),
+      manifest_path,
+    )
+  }
+
+  static fun read(manifest_path: String): Manifest {
+    static::fromTomlManifest(TomlManifest::read(manifest_path), manifest_path)
   }
 
   static fun fromTomlManifest(

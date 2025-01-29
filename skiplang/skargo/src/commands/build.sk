@@ -3,6 +3,8 @@ module Skargo;
 fun build(): (Cli.Command, (GlobalContext, Cli.ParseResults) ~> void) {
   (
     Cli.Command("build")
+      .arg(Cli.Arg::string("init"))
+      .arg(Cli.Arg::string("data"))
       .short("b")
       .about("Compile a local package and all of its dependencies")
       .arg(
@@ -40,25 +42,384 @@ fun build(): (Cli.Command, (GlobalContext, Cli.ParseResults) ~> void) {
   )
 }
 
-fun execBuild(gctx: GlobalContext, args: Cli.ParseResults): void {
-  ws = workspace(args, gctx);
-  opts = compile_options(args);
-  !opts.build_config.export_dir = args.maybeGetString("out-dir").map(p ->
-    Path.join(gctx.cwd, p)
-  );
-  bctx = create_bctx(gctx, ws, opts);
-  withTimer(
-    () -> {
-      build_runner = BuildRunner::create(bctx);
-      build_runner.compile()
-    },
-    t ->
-      gctx.console.status(
-        "Finished",
-        `${opts.build_config.requested_profile} target(s) in ${t}s`,
+const resolvedDependenciesDirName: SKStore.DirName = SKStore.DirName::create(
+  "/resolved_dependencies/",
+);
+
+base class SkargoError
+class UntrackedFile(path: String) extends SkargoError
+class UnsatisfiableDependency(dep: Dependency) extends SkargoError
+
+class StringOrFailureFile(
+  value: Result<String, SkargoError>,
+) extends SKStore.File
+class StringOptOrFailureFile(
+  value: Result<?String, SkargoError>,
+) extends SKStore.File
+class IntOptOrFailureFile(
+  value: Result<?Int, SkargoError>,
+) extends SKStore.File
+class ManifestOrFailureFile(
+  value: Result<Manifest, SkargoError>,
+) extends SKStore.File
+
+class UserInvocationFile(
+  args: Cli.ParseResults,
+  cwd: String,
+) extends SKStore.File
+class BuildCommand(ws: Workspace, opts: CompileOptions)
+class BuildCommandOrFailureFile(
+  value: Result<BuildCommand, SkargoError>,
+) extends SKStore.File
+class ResolvedDependenciesOrFailureFile(
+  value: Result<Map<String, Package>, SkargoError>,
+) extends SKStore.File
+
+class ManifestID(
+  name: String,
+  dependencies: Array<Dependency>,
+) extends SKStore.Key {
+  fun compare(other_key: SKStore.Key): Order {
+    other_key match {
+    | other @ ManifestID _ ->
+      (this.name, this.dependencies.map(d -> d.name)).compare(
+        (other.name, other.dependencies.map(d -> d.name)),
       )
-    ,
+    | _ -> invariant_violation("Expected a ManifestID")
+    }
+  }
+}
+
+class ConsoleFile(value: Console) extends SKStore.File
+
+fun initComputeGraph(context: mutable SKStore.Context): void {
+  print_error("Initializing compute graph");
+  user_invocation = context.mkdir(
+    SKStore.IID::keyType,
+    UserInvocationFile::type,
+    SKStore.DirName::create("/user_invocation/"),
   );
+
+  tracked_files_mtime = context.mkdir(
+    SKStore.SID::keyType,
+    SKStore.IntFile::type,
+    SKStore.DirName::create("/tracked_files_mtime/"),
+  );
+
+  tracked_files_mtime_cache = SKStore.LHandle::create(
+    SKStore.SID::keyType,
+    IntOptOrFailureFile::type,
+    context,
+    SKStore.DirName::create("/tracked_files_mtime_cache/"),
+    (context, _, key) ~> {
+      tracked_files_mtime.maybeGet(context, key) match {
+      | None() -> Array[IntOptOrFailureFile(Failure(UntrackedFile(key.value)))]
+      | Some(SKStore.IntFile(v)) ->
+        Array[
+          IntOptOrFailureFile(
+            if (v == 0) {
+              Success(None())
+            } else {
+              Success(Some(v))
+            },
+          ),
+        ]
+      }
+    },
+  );
+
+  realpath_cache = SKStore.LHandle::create(
+    SKStore.SID::keyType,
+    StringOrFailureFile::type,
+    context,
+    SKStore.DirName::create("/realpath_cache/"),
+    (_context, _, key) ~> {
+      // TODO: Proper implementation.
+      Array[StringOrFailureFile(Success(key.value))]
+    },
+  );
+
+  // TODO: Initialize
+  file_contents_cache = SKStore.LHandle::create(
+    SKStore.SID::keyType,
+    StringOrFailureFile::type,
+    context,
+    SKStore.DirName::create("/file_contents_cache/"),
+    (context, _, key) ~> {
+      tracked_files_mtime_cache.get(context, key).value match {
+      | Failure(err) -> Array[StringOrFailureFile(Failure(err))]
+      | Success(None _) ->
+        invariant_violation(`Attempting to read non-existing file ${key.value}`)
+      | Success(Some _) ->
+        Array[StringOrFailureFile(Success(FileSystem.readTextFile(key.value)))]
+      }
+    },
+  );
+
+  manifest_cache = SKStore.LHandle::create(
+    SKStore.SID::keyType,
+    ManifestOrFailureFile::type,
+    context,
+    SKStore.DirName::create("/manifest_cache/"),
+    (context, _, key) ~> {
+      Array[
+        ManifestOrFailureFile(
+          file_contents_cache.get(context, key).value.map(contents ->
+            Manifest::fromString(contents, key.value)
+          ),
+        ),
+      ]
+    },
+  );
+
+  root_manifest_cache = SKStore.LHandle::create(
+    SKStore.SID::keyType,
+    StringOrFailureFile::type,
+    context,
+    SKStore.DirName::create("/root_manifest_cache/"),
+    (context, self, key) ~> {
+      path = key.value;
+      candidate = Path.join(path, kManifestFile);
+      tracked_files_mtime_cache.get(context, SKStore.SID(candidate))
+        .value match {
+      | Failure(err) -> Array[StringOrFailureFile(Failure(err))]
+      | Success(Some _) -> Array[StringOrFailureFile(Success(candidate))]
+      | Success(None _) ->
+        if (Path.isRoot(path)) {
+          invariant_violation(
+            `could not find \`${kManifestFile}\` in \`${path}\` or any parent directory`,
+          )
+        } else {
+          self.getArray(context, SKStore.SID(Path.parentname(path)))
+        }
+      }
+    },
+  );
+
+  _build_command = user_invocation.map(
+    SKStore.IID::keyType,
+    BuildCommandOrFailureFile::type,
+    context,
+    SKStore.DirName::create("/build_command/"),
+    (context, writer, key, it) ~> {
+      (cli_args, cwd) = it.first match {
+      | UserInvocationFile(cli_args, cwd) -> (cli_args, cwd)
+      };
+      target_dir = cli_args.maybeGetString("target-dir", false).map(p ->
+        Path.join(cwd, p)
+      );
+      opts = compile_options(cli_args);
+      !opts.build_config.export_dir = cli_args
+        .maybeGetString("out-dir")
+        .map(p -> Path.join(cwd, p));
+      manifest_path = cli_args.maybeGetString("manifest-path") match {
+      | Some(path) ->
+        if (!path.startsWith("/")) {
+          !path = Path.join(cwd, path)
+        };
+        if (!path.endsWith(kManifestFile)) {
+          // TODO: Proper exception
+          invariant_violation(
+            `the manifest-path must be a path to a ${kManifestFile} file`,
+          )
+        };
+        // TODO/FIXME
+        tracked_files_mtime_cache.get(context, SKStore.SID(path)).value match {
+        | Failure(err) ->
+          writer.set(key, BuildCommandOrFailureFile(Failure(err)));
+          return void
+        | Success(None _) ->
+          invariant_violation(`manifest path ${path} does not exist`)
+        | Success(Some _) -> void
+        };
+        realpath_cache.get(context, SKStore.SID(path)).value match {
+        | Failure(err) ->
+          writer.set(key, BuildCommandOrFailureFile(Failure(err)));
+          return void
+        | Success(realpath) -> realpath
+        }
+      | None() ->
+        root_manifest_cache.get(context, SKStore.SID(cwd)).value match {
+        | Success(path) -> path
+        | Failure(err) ->
+          writer.set(key, BuildCommandOrFailureFile(Failure(err)));
+          return void
+        }
+      };
+
+      manifest = manifest_cache.get(context, SKStore.SID(manifest_path))
+        .value match {
+      | Failure(err) ->
+        writer.set(key, BuildCommandOrFailureFile(Failure(err)));
+        return void
+      | Success(manifest) -> manifest
+      };
+      pkg = Package(manifest, manifest_path);
+      ws = Workspace(pkg, target_dir);
+
+      writer.set(
+        key,
+        BuildCommandOrFailureFile(Success(BuildCommand(ws, opts))),
+      );
+    },
+  );
+
+  _resolved_dependencies = SKStore.LHandle::create(
+    SKStore.SID::keyType,
+    ResolvedDependenciesOrFailureFile::type,
+    context,
+    resolvedDependenciesDirName,
+    (context, _, key) ~> {
+      result = mutable Map[];
+      Array[
+        ResolvedDependenciesOrFailureFile(
+          activate(context, manifest_cache, key.value, result) match {
+          | Success _ -> Success(result.chill())
+          | Failure(err) -> Failure(err)
+          },
+        ),
+      ];
+    },
+    false,
+  )
+}
+
+fun execBuild(_gctx: GlobalContext, args: Cli.ParseResults): void {
+  shouldInitComputeGraph = args.maybeGetString("data").isNone();
+
+  SKStore.runWithGc(
+    SKStore.Context{},
+    _context ~> {
+      SKStore.CStop(
+        Some((context, _, _) ~> {
+          context.getGlobal("first_iter") match {
+          | None() ->
+            context.setGlobal("first_iter", SKStore.VoidFile());
+            if (shouldInitComputeGraph) {
+              initComputeGraph(context)
+            };
+            verbosity = args.getArray("verbose").size() match {
+            | 0 ->
+              if (args.getBool("quiet")) {
+                VerbosityQuiet()
+              } else {
+                VerbosityNormal()
+              }
+            | 1 -> VerbosityVerbose()
+            | _ -> VerbosityProlix()
+            };
+            console = Console::create(verbosity, args.getString("color"));
+            // FIXME
+            context.setGlobal("console", ConsoleFile(console));
+            if (args.getBool("quiet") && args.getArray("verbose").size() > 0) {
+              console.error("cannot set both --verbose and --quiet");
+              skipExit(3)
+            };
+            context
+              .unsafeGetEagerDir(SKStore.DirName::create("/user_invocation/"))
+              .writeArray(
+                context,
+                SKStore.IID(0),
+                Array[UserInvocationFile(args, getcwd())],
+              );
+            context.update()
+          | Some _ ->
+            print_error("Next iteration");
+            void
+          };
+
+          loop {
+            cmd = context
+              .unsafeGetLazyDir(resolvedDependenciesDirName)
+              .getArray(
+                context,
+                SKStore.SID(
+                  "/home/beauby/Code/skfs/skiplang/skargo/Skargo.toml",
+                ),
+              )[0];
+            (cmd as ResolvedDependenciesOrFailureFile _).value match {
+            | Success _ ->
+              print_string("Yay");
+              debug(cmd);
+              break void
+            // SKStore.CStop(None())
+            | Failure(UntrackedFile(path)) ->
+              print_error(`Untracked file: ${path}`);
+              context
+                .unsafeGetEagerDir(
+                  SKStore.DirName::create("/tracked_files_mtime/"),
+                )
+                .writeArray(
+                  context,
+                  SKStore.SID(path),
+                  Array[
+                    SKStore.IntFile(FileSystem.getLastModificationTime(path)),
+                  ],
+                );
+              context.update()
+            // SKStore.CContinue(None())
+            | Failure(err) ->
+              debug(err);
+              break void // SKStore.CStop(None())
+            }
+          }
+        }),
+      )
+    },
+    Some(SKStore.Synchronizer(SKStore.import, SKStore.export, _ ~> void)),
+  )
+}
+
+fun activate(
+  context: mutable SKStore.Context,
+  manifest_cache: SKStore.LHandle<SKStore.SID, ManifestOrFailureFile>,
+  manifest_path: String,
+  solved: mutable Map<String, Package>,
+): Result<void, SkargoError> {
+  manifest = manifest_cache.get(context, SKStore.SID(manifest_path))
+    .value match {
+  | Failure(err) -> return Failure(err)
+  | Success(manifest) -> manifest
+  };
+  package = Package(manifest, manifest_path);
+  if (solved.containsKey(package.name())) {
+    return Success(void)
+  };
+  solved.set(package.name(), package);
+
+  for (dep in package.manifest.dependencies) {
+    solved.maybeGet(dep.name) match {
+    | Some(dep_package) ->
+      if (!dep.req.matches(dep_package.version())) {
+        return Failure(UnsatisfiableDependency(dep))
+      }
+    | None() ->
+      dep_manifest_path = dep.source_id.kind match {
+      | PathSource() -> Path.join(dep.source_id.url, kManifestFile)
+      };
+      dep_package = manifest_cache.get(context, SKStore.SID(dep_manifest_path))
+        .value match {
+      | Failure(err) -> return Failure(err)
+      | Success(dep_manifest) -> Package(dep_manifest, dep_manifest_path)
+      };
+      if (dep_package.name() != dep.name) {
+        invariant_violation(
+          `Package name mismatch (${dep.name} vs ${dep_package.name()})`,
+        )
+      };
+      activate(
+        context,
+        manifest_cache,
+        dep_package.manifest_path,
+        solved,
+      ) match {
+      | Failure(err) -> return Failure(err)
+      | Success _ -> void
+      }
+    }
+  };
+
+  Success(void)
 }
 
 module end;

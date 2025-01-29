@@ -99,7 +99,7 @@ fun create_bctx(
   ws: Workspace,
   opts: CompileOptions,
 ): BuildContext {
-  resolved_packages = resolve(ws.package);
+  resolved_packages = Map[]; // resolve(ws.package);
 
   roots = generate_root_units(gctx, ws.package, opts.filter, opts.build_config);
   target_data = SkcTargetData::create(
