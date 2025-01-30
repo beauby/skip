@@ -284,90 +284,172 @@ fun initComputeGraph(context: mutable SKStore.Context): void {
   )
 }
 
-fun execBuild(_gctx: GlobalContext, args: Cli.ParseResults): void {
-  shouldInitComputeGraph = args.maybeGetString("data").isNone();
+@cpp_noinline
+fun runWithGc{
+  initCtx: mutable SKStore.Context = mutable SKStore.Context{},
+  init: ?(mutable SKStore.Context ~> void) = None(),
+  iter: mutable SKStore.Context ~> SKStore.ContextOp,
+}: void {
+  _ = runWithGcIntern(
+    initCtx.clone(),
+    init.map(f -> (context, _, _) ~> f(context)),
+    icontext ~> {
+      context = SKStore.Context::fromSaved(icontext);
+      cop = iter(context);
+      (context.clone(), cop)
+    },
+  )
+}
 
-  SKStore.runWithGc(
-    SKStore.Context{},
-    _context ~> {
-      SKStore.CStop(
-        Some((context, _, _) ~> {
-          context.getGlobal("first_iter") match {
-          | None() ->
-            context.setGlobal("first_iter", SKStore.VoidFile());
-            if (shouldInitComputeGraph) {
-              initComputeGraph(context)
-            };
-            verbosity = args.getArray("verbose").size() match {
-            | 0 ->
-              if (args.getBool("quiet")) {
-                VerbosityQuiet()
-              } else {
-                VerbosityNormal()
-              }
-            | 1 -> VerbosityVerbose()
-            | _ -> VerbosityProlix()
-            };
-            console = Console::create(verbosity, args.getString("color"));
-            // FIXME
-            context.setGlobal("console", ConsoleFile(console));
-            if (args.getBool("quiet") && args.getArray("verbose").size() > 0) {
-              console.error("cannot set both --verbose and --quiet");
-              skipExit(3)
-            };
+@cpp_noinline
+fun runWithGcIntern(
+  initCtx: SKStore.Context,
+  init: ?((
+    mutable SKStore.Context,
+    mutable SKStore.Context,
+    SKStore.Context,
+  ) ~> void),
+  f: SKStore.Context ~> (SKStore.Context, SKStore.ContextOp),
+  synchronizer: SKStore.Synchronizer = SKStore.Synchronizer(
+    SKStore.import,
+    SKStore.export,
+    _ ~> void,
+  ),
+  sync: UInt32 = UInt32::truncate(0),
+): SKStore.Context {
+  if (SKStore.gHasContext() == 0) {
+    SKStore.gContextInit(initCtx);
+  };
+  context = SKStore.gUnsafeContextGet();
+  globals = initCtx.globals;
+  initPos = SKStore.newObstack();
+  !context = SKStore.gContextSync(
+    context.tick,
+    context,
+    context.clone(),
+    Some(synchronizer),
+    sync,
+    Some(init),
+  );
+  context.notifyAll(context.tick);
+  SKStore.destroyObstack(initPos);
+
+  loop {
+    startTick = context.tick;
+    pos = SKStore.newObstack();
+    (newContext, newContextOp) = (try {
+      Some(f(context with {globals}))
+    } catch {
+    | exn ->
+      // FIXME
+      print_error(exn.getMessage());
+      None()
+    }) match {
+    | Some(x) -> x
+    | None() ->
+      SKStore.destroyObstack(pos);
+      return context
+    };
+    newContextOp match {
+    | SKStore.CContinue(underLockF) ->
+      !context = SKStore.gContextSync(
+        startTick,
+        context,
+        newContext,
+        Some(synchronizer),
+        sync,
+        underLockF,
+      );
+      context.notifyAll(startTick);
+      SKStore.destroyObstack(pos)
+    | SKStore.CStop(underLockF) ->
+      !context = SKStore.gContextSync(
+        startTick,
+        context,
+        newContext,
+        Some(synchronizer),
+        sync,
+        underLockF,
+      );
+      context.notifyAll(startTick);
+      SKStore.gUnsafeFree(context);
+      SKStore.destroyObstack(pos);
+      return context
+    };
+    !globals = context.globals;
+  }
+}
+
+fun execBuild(_gctx: GlobalContext, args: Cli.ParseResults): void {
+  initCtx = mutable SKStore.Context{};
+  verbosity = args.getArray("verbose").size() match {
+  | 0 ->
+    if (args.getBool("quiet")) {
+      VerbosityQuiet()
+    } else {
+      VerbosityNormal()
+    }
+  | 1 -> VerbosityVerbose()
+  | _ -> VerbosityProlix()
+  };
+  console = Console::create(verbosity, args.getString("color"));
+  initCtx.setGlobal("console", ConsoleFile(console));
+  if (args.getBool("quiet") && args.getArray("verbose").size() > 0) {
+    console.error("cannot set both --verbose and --quiet");
+    skipExit(3)
+  };
+
+  runWithGc{
+    initCtx,
+    init => context ~> {
+      initComputeGraph(context);
+      context
+        .unsafeGetEagerDir(SKStore.DirName::create("/user_invocation/"))
+        .writeArray(
+          context,
+          SKStore.IID(0),
+          Array[UserInvocationFile(args, getcwd())],
+        );
+    },
+    iter => context ~> {
+      cmd = context
+        .unsafeGetLazyDir(resolvedDependenciesDirName)
+        .getArray(
+          context,
+          SKStore.SID("/home/beauby/Code/skfs/skiplang/skargo/Skargo.toml"),
+        )[0];
+      print_error("pouk");
+      (cmd as ResolvedDependenciesOrFailureFile _).value match {
+      | Success _ ->
+        print_string("Yay");
+        debug(cmd);
+        SKStore.CStop(None())
+      | Failure(UntrackedFile(path)) ->
+        print_error(`Untracked file: ${path}`);
+        print_error("plik");
+        // context.update();
+        // print_error("plok");
+        SKStore.CContinue(
+          Some((context, _, _) ~> {
             context
-              .unsafeGetEagerDir(SKStore.DirName::create("/user_invocation/"))
+              .unsafeGetEagerDir(
+                SKStore.DirName::create("/tracked_files_mtime/"),
+              )
               .writeArray(
                 context,
-                SKStore.IID(0),
-                Array[UserInvocationFile(args, getcwd())],
-              );
-            context.update()
-          | Some _ ->
-            print_error("Next iteration");
-            void
-          };
-
-          loop {
-            cmd = context
-              .unsafeGetLazyDir(resolvedDependenciesDirName)
-              .getArray(
-                context,
-                SKStore.SID(
-                  "/home/beauby/Code/skfs/skiplang/skargo/Skargo.toml",
-                ),
-              )[0];
-            (cmd as ResolvedDependenciesOrFailureFile _).value match {
-            | Success _ ->
-              print_string("Yay");
-              debug(cmd);
-              break void
-            // SKStore.CStop(None())
-            | Failure(UntrackedFile(path)) ->
-              print_error(`Untracked file: ${path}`);
-              context
-                .unsafeGetEagerDir(
-                  SKStore.DirName::create("/tracked_files_mtime/"),
-                )
-                .writeArray(
-                  context,
-                  SKStore.SID(path),
-                  Array[
-                    SKStore.IntFile(FileSystem.getLastModificationTime(path)),
-                  ],
-                );
-              context.update()
-            // SKStore.CContinue(None())
-            | Failure(err) ->
-              debug(err);
-              break void // SKStore.CStop(None())
-            }
-          }
-        }),
-      )
+                SKStore.SID(path),
+                Array[
+                  SKStore.IntFile(FileSystem.getLastModificationTime(path)),
+                ],
+              )
+          }),
+        )
+      | Failure(err) ->
+        debug(err);
+        SKStore.CStop(None())
+      }
     },
-    Some(SKStore.Synchronizer(SKStore.import, SKStore.export, _ ~> void)),
-  )
+  }
 }
 
 fun activate(
