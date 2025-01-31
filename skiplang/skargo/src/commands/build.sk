@@ -46,7 +46,7 @@ const resolvedDependenciesDirName: SKStore.DirName = SKStore.DirName::create(
   "/resolved_dependencies/",
 );
 
-base class SkargoError
+base class SkargoError extends Exception
 class UntrackedFile(path: String) extends SkargoError
 class UnsatisfiableDependency(dep: Dependency) extends SkargoError
 
@@ -264,6 +264,9 @@ fun initComputeGraph(context: mutable SKStore.Context): void {
     },
   );
 
+  // NOTE: When we introduce a proper backtracking solver, this will
+  // either consume extra memory or invalidate the wrong memoized
+  // values.
   _resolved_dependencies = SKStore.LHandle::create(
     SKStore.SID::keyType,
     ResolvedDependenciesOrFailureFile::type,
@@ -282,102 +285,6 @@ fun initComputeGraph(context: mutable SKStore.Context): void {
     },
     false,
   )
-}
-
-@cpp_noinline
-fun runWithGc{
-  initCtx: mutable SKStore.Context = mutable SKStore.Context{},
-  init: ?(mutable SKStore.Context ~> void) = None(),
-  iter: mutable SKStore.Context ~> SKStore.ContextOp,
-}: void {
-  _ = runWithGcIntern(
-    initCtx.clone(),
-    init.map(f -> (context, _, _) ~> f(context)),
-    icontext ~> {
-      context = SKStore.Context::fromSaved(icontext);
-      cop = iter(context);
-      (context.clone(), cop)
-    },
-  )
-}
-
-@cpp_noinline
-fun runWithGcIntern(
-  initCtx: SKStore.Context,
-  init: ?((
-    mutable SKStore.Context,
-    mutable SKStore.Context,
-    SKStore.Context,
-  ) ~> void),
-  f: SKStore.Context ~> (SKStore.Context, SKStore.ContextOp),
-  synchronizer: SKStore.Synchronizer = SKStore.Synchronizer(
-    SKStore.import,
-    SKStore.export,
-    _ ~> void,
-  ),
-  sync: UInt32 = UInt32::truncate(0),
-): SKStore.Context {
-  if (SKStore.gHasContext() == 0) {
-    SKStore.gContextInit(initCtx);
-  };
-  context = SKStore.gUnsafeContextGet();
-  globals = initCtx.globals;
-  initPos = SKStore.newObstack();
-  !context = SKStore.gContextSync(
-    context.tick,
-    context,
-    context.clone(),
-    Some(synchronizer),
-    sync,
-    Some(init),
-  );
-  context.notifyAll(context.tick);
-  SKStore.destroyObstack(initPos);
-
-  loop {
-    startTick = context.tick;
-    pos = SKStore.newObstack();
-    (newContext, newContextOp) = (try {
-      Some(f(context with {globals}))
-    } catch {
-    | exn ->
-      // FIXME
-      print_error(exn.getMessage());
-      None()
-    }) match {
-    | Some(x) -> x
-    | None() ->
-      SKStore.destroyObstack(pos);
-      return context
-    };
-    newContextOp match {
-    | SKStore.CContinue(underLockF) ->
-      !context = SKStore.gContextSync(
-        startTick,
-        context,
-        newContext,
-        Some(synchronizer),
-        sync,
-        underLockF,
-      );
-      context.notifyAll(startTick);
-      SKStore.destroyObstack(pos)
-    | SKStore.CStop(underLockF) ->
-      !context = SKStore.gContextSync(
-        startTick,
-        context,
-        newContext,
-        Some(synchronizer),
-        sync,
-        underLockF,
-      );
-      context.notifyAll(startTick);
-      SKStore.gUnsafeFree(context);
-      SKStore.destroyObstack(pos);
-      return context
-    };
-    !globals = context.globals;
-  }
 }
 
 fun execBuild(_gctx: GlobalContext, args: Cli.ParseResults): void {
@@ -418,17 +325,12 @@ fun execBuild(_gctx: GlobalContext, args: Cli.ParseResults): void {
           context,
           SKStore.SID("/home/beauby/Code/skfs/skiplang/skargo/Skargo.toml"),
         )[0];
-      print_error("pouk");
       (cmd as ResolvedDependenciesOrFailureFile _).value match {
       | Success _ ->
-        print_string("Yay");
         debug(cmd);
         SKStore.CStop(None())
       | Failure(UntrackedFile(path)) ->
         print_error(`Untracked file: ${path}`);
-        print_error("plik");
-        // context.update();
-        // print_error("plok");
         SKStore.CContinue(
           Some((context, _, _) ~> {
             context
@@ -451,6 +353,8 @@ fun execBuild(_gctx: GlobalContext, args: Cli.ParseResults): void {
     },
   }
 }
+
+// Solver
 
 fun activate(
   context: mutable SKStore.Context,
@@ -485,6 +389,7 @@ fun activate(
       | Success(dep_manifest) -> Package(dep_manifest, dep_manifest_path)
       };
       if (dep_package.name() != dep.name) {
+        // FIXME: Proper exception.
         invariant_violation(
           `Package name mismatch (${dep.name} vs ${dep_package.name()})`,
         )
@@ -502,6 +407,100 @@ fun activate(
   };
 
   Success(void)
+}
+
+// SKStore helpers
+
+@cpp_noinline
+fun runWithGc{
+  initCtx: mutable SKStore.Context = mutable SKStore.Context{},
+  init: mutable SKStore.Context ~> void = _ ~> void,
+  iter: mutable SKStore.Context ~> SKStore.ContextOp = _ ~>
+    SKStore.CStop(None()),
+}: void {
+  runWithGcIntern(
+    initCtx.clone(),
+    Some((context, _, _) ~> init(context)),
+    icontext ~> {
+      context = SKStore.Context::fromSaved(icontext);
+      cop = iter(context);
+      (context.clone(), cop)
+    },
+  )
+}
+
+@cpp_noinline
+fun runWithGcIntern(
+  initCtx: SKStore.Context,
+  init: ?((
+    mutable SKStore.Context,
+    mutable SKStore.Context,
+    SKStore.Context,
+  ) ~> void),
+  f: SKStore.Context ~> (SKStore.Context, SKStore.ContextOp),
+  synchronizer: SKStore.Synchronizer = SKStore.Synchronizer(
+    SKStore.import,
+    SKStore.export,
+    _ ~> void,
+  ),
+  sync: UInt32 = UInt32::truncate(0),
+): void {
+  if (SKStore.gHasContext() == 0) {
+    SKStore.gContextInit(initCtx);
+  };
+  context = SKStore.gUnsafeContextGet();
+  globals = initCtx.globals;
+
+  loop {
+    startTick = context.tick;
+    pos = SKStore.newObstack();
+    (newContext, newContextOp) = init match {
+    | Some(init_fun) ->
+      !init = None();
+      (context.clone(), SKStore.CContinue(Some(init_fun)))
+    | None() ->
+      (try {
+        Some(f(context with {globals}))
+      } catch {
+      | exn ->
+        // FIXME
+        print_error(exn.getMessage());
+        None()
+      }) match {
+      | Some(x) -> x
+      | None() ->
+        SKStore.destroyObstack(pos);
+        return void
+      }
+    };
+    newContextOp match {
+    | SKStore.CContinue(underLockF) ->
+      !context = SKStore.gContextSync(
+        startTick,
+        context,
+        newContext,
+        Some(synchronizer),
+        sync,
+        underLockF,
+      );
+      context.notifyAll(startTick);
+      SKStore.destroyObstack(pos)
+    | SKStore.CStop(underLockF) ->
+      !context = SKStore.gContextSync(
+        startTick,
+        context,
+        newContext,
+        Some(synchronizer),
+        sync,
+        underLockF,
+      );
+      context.notifyAll(startTick);
+      SKStore.gUnsafeFree(context);
+      SKStore.destroyObstack(pos);
+      return void
+    };
+    !globals = context.globals;
+  }
 }
 
 module end;
