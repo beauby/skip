@@ -113,7 +113,8 @@ fun initComputeGraph(context: mutable SKStore.Context): void {
     SKStore.DirName::create("/tracked_files_mtime_cache/"),
     (context, _, key) ~> {
       tracked_files_mtime.maybeGet(context, key) match {
-      | None() -> Array[IntOptOrFailureFile(Failure(UntrackedFile(key.value)))]
+      | None() ->
+        throw UntrackedFile(key.value) //Array[IntOptOrFailureFile(Failure(UntrackedFile(key.value)))]
       | Some(SKStore.IntFile(v)) ->
         Array[
           IntOptOrFailureFile(
@@ -418,15 +419,7 @@ fun runWithGc{
   iter: mutable SKStore.Context ~> SKStore.ContextOp = _ ~>
     SKStore.CStop(None()),
 }: void {
-  runWithGcIntern(
-    initCtx.clone(),
-    Some((context, _, _) ~> init(context)),
-    icontext ~> {
-      context = SKStore.Context::fromSaved(icontext);
-      cop = iter(context);
-      (context.clone(), cop)
-    },
-  )
+  runWithGcIntern(initCtx.clone(), Some((context, _, _) ~> init(context)), iter)
 }
 
 @cpp_noinline
@@ -437,7 +430,7 @@ fun runWithGcIntern(
     mutable SKStore.Context,
     SKStore.Context,
   ) ~> void),
-  f: SKStore.Context ~> (SKStore.Context, SKStore.ContextOp),
+  f: mutable SKStore.Context ~> SKStore.ContextOp,
   synchronizer: SKStore.Synchronizer = SKStore.Synchronizer(
     SKStore.import,
     SKStore.export,
@@ -454,23 +447,28 @@ fun runWithGcIntern(
   loop {
     startTick = context.tick;
     pos = SKStore.newObstack();
-    (newContext, newContextOp) = init match {
+    newContext = SKStore.Context::fromSaved(context with {globals});
+    newContextOp = init match {
     | Some(init_fun) ->
       !init = None();
-      (context.clone(), SKStore.CContinue(Some(init_fun)))
+      SKStore.CContinue(Some(init_fun))
     | None() ->
-      (try {
-        Some(f(context with {globals}))
+      try {
+        f(newContext)
       } catch {
       | exn ->
-        // FIXME
-        print_error(exn.getMessage());
-        None()
-      }) match {
-      | Some(x) -> x
-      | None() ->
+        !context = SKStore.gContextSync(
+          startTick,
+          context,
+          newContext,
+          Some(synchronizer),
+          sync,
+          underLockF,
+        );
+        context.notifyAll(startTick);
+        SKStore.gUnsafeFree(context);
         SKStore.destroyObstack(pos);
-        return void
+        throw exn
       }
     };
     newContextOp match {
