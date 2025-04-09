@@ -1105,9 +1105,7 @@ export class ToBinding {
 
   //
   private getJsonConverter() {
-    if (this.skjson == undefined) {
-      this.skjson = this.getConverter();
-    }
+    this.skjson ??= this.getConverter();
     return this.skjson;
   }
 

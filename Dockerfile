@@ -1,6 +1,7 @@
-FROM ubuntu:22.04 AS skiplang-base
+FROM ubuntu:24.04 AS skiplang-base
 
 ENV DEBIAN_FRONTEND=noninteractive
+
 RUN --mount=type=bind,source=./bin/apt-install.sh,target=/tmp/apt-install.sh \
     /tmp/apt-install.sh skiplang-build-deps
 

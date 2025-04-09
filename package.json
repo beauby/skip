@@ -25,9 +25,9 @@
     "examples/blogger/reactive_service"
   ],
   "devDependencies": {
-    "@types/node": "^22.10.0",
     "@skiplabs/eslint-config": "^0.0.1",
     "@skiplabs/tsconfig": "^0.0.1",
+    "@types/node": "^22.10.0",
     "eslint": "9.15.0",
     "prettier": "^3.4.1",
     "typescript": "^5.7.2"
@@ -37,5 +37,8 @@
     "clean": "npm run clean --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
+  },
+  "dependencies": {
+    "artillery": "^2.0.22"
   }
 }
