@@ -4,6 +4,7 @@ function handleSSEMessage(msg, context, events) {
   }
   context.vars.x++;
   events.emit('counter', 'custom_handler', 1);
+  console.log("ASDASD");
 }
 
 function onServerTime(e, context, events) {
