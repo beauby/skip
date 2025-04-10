@@ -251,7 +251,7 @@ export class Utils {
     this.mainFn = mainFn;
   }
   log = (str: string, kind?: Stream, newLine: boolean = false) => {
-    kind = kind ? kind : Stream.OUT;
+    kind = kind ?? Stream.OUT;
     str += newLine ? "\n" : "";
     if (kind == Stream.DEBUG) {
       // Flush buffered this.stddebug output at newlines

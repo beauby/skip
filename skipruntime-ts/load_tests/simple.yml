@@ -1,5 +1,5 @@
 config:
-  target: http://localhost:8080/v1/streams/posts
+  target: http://localhost:8081/v1/streams/foo
   processor: ./helpers.js
   phases:
     - duration: 10
@@ -8,11 +8,19 @@ config:
     sse: {}
 
 scenarios:
-  - engine: sse
+  - name: 'reader'
+    weight: 1
+    engine: sse
     onMessage: handleSSEMessage
     flow:
       - open
       - log: opened
-      - loop
-      - log: closing
-      - close
+      - think
+  - name: 'writer'
+    weight: 10
+    flow:
+      - patch:
+          url: 'http://localhost:8081/v1/inputs/foo'
+          body: '[["foo", ["bar"]]]'
+          headers:
+            Content-Type: 'application/json'
