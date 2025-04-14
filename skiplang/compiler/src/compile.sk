@@ -321,7 +321,7 @@ fun getOrInitializeBackend(context: mutable SKStore.Context): SKStore.EagerDir {
       );
 
       !env = createOptimizedFunctions(context, env, conf);
-      defs = runCompilerPhase("native/create_asm_graph", () -> {
+      (defs, !env) = runCompilerPhase("native/create_asm_graph", () -> {
         AsmOutput.createAsmDefGraph(env, conf)
       });
 
@@ -334,7 +334,7 @@ fun getOrInitializeBackend(context: mutable SKStore.Context): SKStore.EagerDir {
       });
 
       conf.emit match {
-      | "llvm-ir" -> compile_llvm_ir(defs, conf)
+      | "llvm-ir" -> compile_llvm_ir(defs, env, conf)
       | "link" | "cdylib" ->
         // TODO: Remove exports stuff once --emit=cdylib is supported.
         wasm_exports = outerIst
@@ -352,7 +352,7 @@ fun getOrInitializeBackend(context: mutable SKStore.Context): SKStore.EagerDir {
               ).isSome()
           )
           .map(exportName);
-        compile_binary(defs, conf, wasm_exports)
+        compile_binary(defs, env, conf, wasm_exports)
       | "sklib" ->
         invariant_violation("--emit=sklib should have been handled earlier")
       | _ -> invariant_violation("Unsupported value for `--emit`: " + conf.emit)
@@ -402,22 +402,24 @@ fun compile(
 
 fun compile_llvm_ir(
   defs: readonly AsmOutput.AsmDefIDToAsmDef,
+  env: GlobalEnv,
   conf: Config.Config,
 ): void {
   runCompilerPhase("native/write_asm_files", () -> {
-    AsmOutput.writeOutputFiles(defs, conf.input_files, conf.output, conf)
+    AsmOutput.writeOutputFiles(defs, env, conf.input_files, conf.output, conf)
   })
 }
 
 fun compile_binary(
   defs: readonly AsmOutput.AsmDefIDToAsmDef,
+  env: GlobalEnv,
   conf: Config.Config,
   exports: Array<String>,
 ): void {
   // TODO: Use `mkstemp()` instead.
   llFile = conf.output + ".ll";
   runCompilerPhase("native/write_asm_files", () -> {
-    AsmOutput.writeOutputFiles(defs, conf.input_files, llFile, conf)
+    AsmOutput.writeOutputFiles(defs, env, conf.input_files, llFile, conf)
   });
 
   runCompilerPhase("native/link", () -> {

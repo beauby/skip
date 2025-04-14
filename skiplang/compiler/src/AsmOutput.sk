@@ -657,7 +657,7 @@ mutable class StructAsmDefBuilder extends AsmDefBuilder
 fun createAsmDefGraph(
   env: GlobalEnv,
   config: Config.Config,
-): mutable AsmOutput.AsmDefIDToAsmDef {
+): (mutable AsmOutput.AsmDefIDToAsmDef, GlobalEnv) {
   common = AsmOutput::make{env, config};
 
   // Create these immediately so later references can look them up.
@@ -678,7 +678,7 @@ fun createAsmDefGraph(
 
   removeRedundantDefs(common.defs);
 
-  common.defs
+  (common.defs, common.env)
 }
 
 // When we combine two AsmDefs, we store the "winner" in the slot for all
@@ -980,6 +980,7 @@ fun assignFinalSymbols(defs: mutable AsmOutput.AsmDefIDToAsmDef): void {
 
 fun writeOutputFiles(
   defs: readonly AsmOutput.AsmDefIDToAsmDef,
+  env: GlobalEnv,
   inputFiles: Array<String>,
   output: String,
   config: Config.Config,
@@ -1021,6 +1022,7 @@ fun writeOutputFiles(
   // arbitrarily pick some unique input file as the CU for this output file.
   metadata = AsmOutput.Metadata::create(
     defs,
+    env,
     config.cwd,
     if (!inputFiles.isEmpty()) {
       inputFiles[0]
@@ -1618,6 +1620,9 @@ value class DICompileUnit() uses DIEntry {
 
 value class DISubprogram() uses DIEntry
 
+value class DIType() uses DIEntry
+value class DISubroutineType() uses DIEntry
+
 value class DILocation() uses DIEntry {
   const none: DILocation = DILocation(-1);
 }
@@ -1650,10 +1655,15 @@ mutable class Metadata{
 
   diFileCache: mutable UnorderedMap<Filename, DIFile> = mutable UnorderedMap[],
 
-  // TODO: Right now we only support a single generic subroutine type.  Once we
-  // fix FileRange so we know what function we're in then this should turn
-  // into a Map.
-  mutable diSubroutineTypeCache: Int = -1,
+  diTypeCache: mutable UnorderedMap<
+    Array<Type>,
+    DIType,
+  > = mutable UnorderedMap[],
+
+  diSubroutineTypeCache: mutable UnorderedMap<
+    (Array<Type>, Array<Type>),
+    DISubroutineType,
+  > = mutable UnorderedMap[],
 
   mutable diCompileUnit: DICompileUnit = DICompileUnit::none,
 
@@ -1672,13 +1682,15 @@ mutable class Metadata{
   moduleFlags: mutable Vector<Int> = mutable Vector[],
 
   defs: readonly AsmDefIDToAsmDef,
+  env: GlobalEnv,
 } {
   static fun create(
     defs: readonly AsmDefIDToAsmDef,
+    env: GlobalEnv,
     cwd: Config.WorkingDirectory,
     compilationUnit: String,
   ): mutable Metadata {
-    metadata = mutable Metadata{defs, cwd};
+    metadata = mutable Metadata{defs, cwd, env};
 
     // Reserve the slot for kEmptyBlockIndex since we may have already
     // handed it out.
@@ -1741,14 +1753,11 @@ mutable class Metadata{
 
     key = (file, id);
     this.diSubprogramCache.getOrAdd(key, () -> {
-      if (this.diSubroutineTypeCache == -1) {
-        emptyIdx = this.add(() -> "!{}");
-        this.!diSubroutineTypeCache = this.add(() -> {
-          str = mutable TextOutputStream.StringTextOutputStream{};
-          str.printf1("!DISubroutineType(types: !%s)", emptyIdx);
-          str.toString()
-        });
-      };
+      f = this.env.getFunction(funPos.id, funPos.pos);
+      diSubroutineType = this.diSubroutineType(
+        f.funType.returnType,
+        f.funType.params,
+      );
       DISubprogram(
         this.add(() -> {
           str = mutable TextOutputStream.StringTextOutputStream{};
@@ -1758,10 +1767,69 @@ mutable class Metadata{
             file,
             file,
             funPos.pos.startPosition().line() + 1,
-            this.diSubroutineTypeCache,
+            diSubroutineType,
             this.diCompileUnit,
           );
           str.toString()
+        }),
+      )
+    })
+  }
+
+  mutable fun diSubroutineType(
+    returnType: Array<Type>,
+    params: Array<Type>,
+  ): DISubroutineType {
+    this.diSubroutineTypeCache.getOrAdd((returnType, params), () -> {
+      DISubroutineType(
+        this.add(() -> {
+          str = mutable TextOutputStream.StringTextOutputStream{};
+          str.write("!DISubroutineType(types: !{");
+          str.write(
+            if (returnType.isEmpty()) "null" else {
+              this.diType(returnType).toString()
+            },
+          );
+          params.each(t -> {
+            str.printf1(", %s", this.diType(Array[t]));
+          });
+          str.write("}");
+          str.toString()
+        }),
+      )
+    })
+  }
+
+  mutable fun diType(types: Array<Type>): DIType {
+    this.diTypeCache.getOrAdd(types, () -> {
+      DIType(
+        this.add(() -> {
+          types.size() match {
+          | 0 -> invariant_violation("ICE")
+          | 1 ->
+            types[0].maybeGetScalarType(this.env) match {
+            | Some(ScalarType(bitSize, bitAlignment, _llvmTypeName, _kind)) ->
+              name = types[0].exampleSClass(this.env).gclassName.id;
+              encoding = name match {
+              | "Bool" -> "DW_ATE_boolean"
+              | "Char" -> "DW_ATE_unsigned"
+              | "Int" | "Int8" | "Int16" | "Int32" -> "DW_ATE_signed"
+              | "Float" -> "DW_ATE_float"
+              | "Runtime.GCPointer" | "Runtime.NonGCPointer"
+              // TODO: Check this.
+              | "String" ->
+                "DW_ATE_address"
+              // FIXME: Proper type for objects.
+              | _ -> "!{}"
+              };
+              `!DIBasicType(name: ${name}, size: ${bitSize}, align: ${bitAlignment}, encoding: ${encoding})`
+            | None() ->
+              // FIXME: Proper type for value class values.
+              "!{}"
+            }
+          | _ -> // FIXME: Proper type using DICompositeType
+            "!{}"
+          }
         }),
       )
     })
