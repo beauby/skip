@@ -657,7 +657,11 @@ mutable class StructAsmDefBuilder extends AsmDefBuilder
 fun createAsmDefGraph(
   env: GlobalEnv,
   config: Config.Config,
-): (mutable AsmOutput.AsmDefIDToAsmDef, GlobalEnv) {
+): (
+  mutable AsmOutput.AsmDefIDToAsmDef,
+  mutable UnorderedMap<AsmDefID, Function>,
+  GlobalEnv,
+) {
   common = AsmOutput::make{env, config};
 
   // Create these immediately so later references can look them up.
@@ -670,15 +674,17 @@ fun createAsmDefGraph(
     id => Some(common.megaVTableImage),
   };
 
+  funs = mutable UnorderedMap<AsmDefID, Function>[];
   for (f in env.sfuns) {
-    AsmOutput.llvmWriteFunction(f, common);
+    asmDefID = AsmOutput.llvmWriteFunction(f, common);
+    funs.set(asmDefID, f);
   };
 
   common.writeStaticData();
 
   removeRedundantDefs(common.defs);
 
-  (common.defs, common.env)
+  (common.defs, funs, common.env)
 }
 
 // When we combine two AsmDefs, we store the "winner" in the slot for all
@@ -980,6 +986,7 @@ fun assignFinalSymbols(defs: mutable AsmOutput.AsmDefIDToAsmDef): void {
 
 fun writeOutputFiles(
   defs: readonly AsmOutput.AsmDefIDToAsmDef,
+  funs: readonly UnorderedMap<AsmDefID, Function>,
   env: GlobalEnv,
   inputFiles: Array<String>,
   output: String,
@@ -1022,6 +1029,7 @@ fun writeOutputFiles(
   // arbitrarily pick some unique input file as the CU for this output file.
   metadata = AsmOutput.Metadata::create(
     defs,
+    funs,
     env,
     config.cwd,
     if (!inputFiles.isEmpty()) {
@@ -1682,15 +1690,17 @@ mutable class Metadata{
   moduleFlags: mutable Vector<Int> = mutable Vector[],
 
   defs: readonly AsmDefIDToAsmDef,
+  funs: readonly UnorderedMap<AsmDefID, Function>,
   env: GlobalEnv,
 } {
   static fun create(
     defs: readonly AsmDefIDToAsmDef,
+    funs: readonly UnorderedMap<AsmDefID, Function>,
     env: GlobalEnv,
     cwd: Config.WorkingDirectory,
     compilationUnit: String,
   ): mutable Metadata {
-    metadata = mutable Metadata{defs, cwd, env};
+    metadata = mutable Metadata{defs, funs, env, cwd};
 
     // Reserve the slot for kEmptyBlockIndex since we may have already
     // handed it out.
@@ -1753,7 +1763,10 @@ mutable class Metadata{
 
     key = (file, id);
     this.diSubprogramCache.getOrAdd(key, () -> {
-      f = this.env.getFunction(funPos.id, funPos.pos);
+      print_error("");
+      debug(origID);
+      debug(id);
+      f = this.funs.get(id);
       diSubroutineType = this.diSubroutineType(
         f.funType.returnType,
         f.funType.params,
@@ -3940,7 +3953,7 @@ fun llvmWriteFunctionDefinition(
   f: Function,
   symbol: String,
   common: mutable AsmOutput,
-): void {
+): AsmDefID {
   pos = f.pos;
 
   common.resetForNewFunction(pos);
@@ -4069,16 +4082,18 @@ fun llvmWriteFunctionDefinition(
     asm.print("\"\n");
   };
 
-  _ = asm.finish();
+  asmDefID = asm.finish();
 
-  common.doneWithFunction()
+  common.doneWithFunction();
+
+  asmDefID
 }
 
 fun llvmWriteFunctionDeclaration(
   f: Function,
   symbol: String,
   common: mutable AsmOutput,
-): void {
+): AsmDefID {
   asmDefID = f.getAsmDefID();
 
   common.externs.maybeGet(symbol) match {
@@ -4110,10 +4125,12 @@ fun llvmWriteFunctionDeclaration(
     };
 
     _ = asm.finish()
-  }
+  };
+
+  asmDefID
 }
 
-fun llvmWriteFunction(f: Function, common: mutable AsmOutput): void {
+fun llvmWriteFunction(f: Function, common: mutable AsmOutput): AsmDefID {
   symbol = cppExternalName(
     f,
     common.config.exportedAsFunctions,
