@@ -1,17 +1,26 @@
-function handleSSEMessage(msg, context, events) {
-  if (!context.vars?.x) {
-    context.vars.x = 1;
-  }
-  context.vars.x++;
-  events.emit('counter', 'custom_handler', 1);
-  console.log("ASDASD");
+function onUpdate(msg, context, events) {
+    const uuid = JSON.parse(msg.data)[0][0];
+    if (uuid in context.vars.write_timestamps) {
+        context.vars.writes_replicated = (context.vars.writes_replicated ?? 0) + 1;
+        const timeDelta = Date.now() - context.vars.write_timestamps[uuid];
+        events.emit('counter', 'skip.writes_replicated', 1);
+        events.emit('histogram', 'skip.replication_time', timeDelta);
+    }
 }
 
-function onServerTime(e, context, events) {
-  events.emit('counter', 'sse.events.server-time', 1);
+function writeHook(collection, data, context, events) {
+    context.vars.writes_issued = (context.vars.writes_issued ?? 0) + 1;
+    events.emit('counter', 'skip.writes_issued', 1);
+    context.vars.write_timestamps ??= {};
+    context.vars.write_timestamps[data[0][0]] = Date.now();
+}
+
+function allWritesReplicated(context, next) {
+    next(context.vars.writes_issued != context.vars.writes_replicated);
 }
 
 module.exports = {
-  handleSSEMessage,
-  onServerTime
+    onUpdate,
+    writeHook,
+    allWritesReplicated,
 }

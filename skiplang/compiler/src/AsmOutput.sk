@@ -165,7 +165,7 @@ extension base class .Pos uses AsmFormattable {
     if (spec != 'D') {
       this.die(`Debug info must be written using %D, not %${spec}`)
     };
-    asm.writeDebug(this, false)
+    asm.writeDebug(this, None())
   }
 }
 
@@ -230,7 +230,7 @@ extension class .Function uses AsmFormattable {
     spec match {
     | 'D' ->
       // Debug for a Function is special, creating the diSubprogram entry.
-      asm.writeDebug(this.pos, true)
+      asm.writeDebug(this.pos, Some(this))
     | 'n' ->
       // AsmDefID uses the same numbers for all existing SFunctionID
       asm.print('@');
@@ -373,6 +373,8 @@ mutable class AsmDef{
     metadata: mutable Metadata,
     internalLinkage: Bool,
   ): void {
+    debug(this.declarationText);
+    debug(this.text);
     refs = this.refs;
     dbg = this.debug;
 
@@ -401,10 +403,11 @@ mutable class AsmDef{
       };
 
       if (debugIndex < dbg.size()) {
-        (charIndex, pos, isDISubprogram) = dbg[debugIndex];
+        (charIndex, pos, functionOpt) = dbg[debugIndex];
 
         if (charIndex == i) {
-          metadataID = if (isDISubprogram) {
+          metadataID = functionOpt match {
+          | Some(f) ->
             fp = FunPos{
               name => this.symbol,
               pos => pos match {
@@ -414,8 +417,8 @@ mutable class AsmDef{
               id => SFunctionID(this.id.id),
             };
             !funPos = Some(fp);
-            metadata.diSubprogram(fp).id
-          } else {
+            metadata.diSubprogram(fp, f).id
+          | None() ->
             // The diSubprogram should come first so we should have
             // created a FunPos already.
             metadata.diLocation(
@@ -496,7 +499,7 @@ mutable class AsmDef{
 mutable private base class AsmDefBuilder{
   text: mutable TextOutputStream.StringTextOutputStream = mutable TextOutputStream.StringTextOutputStream{},
   refs: mutable Vector<(Int, AsmDefID)> = mutable Vector[],
-  debug: mutable Vector<(Int, Pos, Bool)> = mutable Vector[],
+  debug: mutable Vector<(Int, Pos, ?.Function)> = mutable Vector[],
   declarationText: mutable TextOutputStream.StringTextOutputStream = mutable TextOutputStream.StringTextOutputStream{},
   declarationRefs: mutable Vector<(Int, AsmDefID)> = mutable Vector[],
   common: mutable AsmOutput,
@@ -551,8 +554,8 @@ mutable private base class AsmDefBuilder{
     def.id
   }
 
-  mutable fun writeDebug(pos: Pos, isDISubprogram: Bool): void {
-    this.debug.push((this.text.size(), pos, isDISubprogram))
+  mutable fun writeDebug(pos: Pos, function: ?.Function): void {
+    this.debug.push((this.text.size(), pos, function))
   }
 
   mutable fun writeRef(ref: AsmDefID): void {
@@ -657,7 +660,10 @@ mutable class StructAsmDefBuilder extends AsmDefBuilder
 fun createAsmDefGraph(
   env: GlobalEnv,
   config: Config.Config,
-): mutable AsmOutput.AsmDefIDToAsmDef {
+): (
+  mutable AsmOutput.AsmDefIDToAsmDef,
+  mutable UnorderedMap<AsmDefID, Function>,
+) {
   common = AsmOutput::make{env, config};
 
   // Create these immediately so later references can look them up.
@@ -670,15 +676,17 @@ fun createAsmDefGraph(
     id => Some(common.megaVTableImage),
   };
 
+  funs = mutable UnorderedMap<AsmDefID, Function>[];
   for (f in env.sfuns) {
-    AsmOutput.llvmWriteFunction(f, common);
+    asmDefID = AsmOutput.llvmWriteFunction(f, common);
+    funs.set(asmDefID, f);
   };
 
   common.writeStaticData();
 
   removeRedundantDefs(common.defs);
 
-  common.defs
+  (common.defs, funs)
 }
 
 // When we combine two AsmDefs, we store the "winner" in the slot for all
@@ -980,6 +988,8 @@ fun assignFinalSymbols(defs: mutable AsmOutput.AsmDefIDToAsmDef): void {
 
 fun writeOutputFiles(
   defs: readonly AsmOutput.AsmDefIDToAsmDef,
+  funs: readonly UnorderedMap<AsmDefID, Function>,
+  env: GlobalEnv,
   inputFiles: Array<String>,
   output: String,
   config: Config.Config,
@@ -1021,6 +1031,8 @@ fun writeOutputFiles(
   // arbitrarily pick some unique input file as the CU for this output file.
   metadata = AsmOutput.Metadata::create(
     defs,
+    funs,
+    env,
     config.cwd,
     if (!inputFiles.isEmpty()) {
       inputFiles[0]
@@ -1046,6 +1058,7 @@ fun writeOutputFiles(
         // All its refs have been visited already, we can emit this.
         !fileEmpty = false;
 
+        debug(d);
         if (!d.hasDefinition()) {
           d.write(sstr, metadata, false)
         } else {
@@ -1618,6 +1631,9 @@ value class DICompileUnit() uses DIEntry {
 
 value class DISubprogram() uses DIEntry
 
+value class DIType() uses DIEntry
+value class DISubroutineType() uses DIEntry
+
 value class DILocation() uses DIEntry {
   const none: DILocation = DILocation(-1);
 }
@@ -1650,10 +1666,15 @@ mutable class Metadata{
 
   diFileCache: mutable UnorderedMap<Filename, DIFile> = mutable UnorderedMap[],
 
-  // TODO: Right now we only support a single generic subroutine type.  Once we
-  // fix FileRange so we know what function we're in then this should turn
-  // into a Map.
-  mutable diSubroutineTypeCache: Int = -1,
+  diTypeCache: mutable UnorderedMap<
+    Array<Type>,
+    DIType,
+  > = mutable UnorderedMap[],
+
+  diSubroutineTypeCache: mutable UnorderedMap<
+    (Array<Type>, Array<Type>),
+    DISubroutineType,
+  > = mutable UnorderedMap[],
 
   mutable diCompileUnit: DICompileUnit = DICompileUnit::none,
 
@@ -1672,13 +1693,17 @@ mutable class Metadata{
   moduleFlags: mutable Vector<Int> = mutable Vector[],
 
   defs: readonly AsmDefIDToAsmDef,
+  funs: readonly UnorderedMap<AsmDefID, Function>,
+  env: GlobalEnv,
 } {
   static fun create(
     defs: readonly AsmDefIDToAsmDef,
+    funs: readonly UnorderedMap<AsmDefID, Function>,
+    env: GlobalEnv,
     cwd: Config.WorkingDirectory,
     compilationUnit: String,
   ): mutable Metadata {
-    metadata = mutable Metadata{defs, cwd};
+    metadata = mutable Metadata{defs, funs, env, cwd};
 
     // Reserve the slot for kEmptyBlockIndex since we may have already
     // handed it out.
@@ -1729,7 +1754,7 @@ mutable class Metadata{
 
   // DISubprogram for function definition and location scope.  Note that the
   // DISubprogram must be unique for each function that gets written out.
-  mutable fun diSubprogram(funPos: FunPosBase): DISubprogram {
+  mutable fun diSubprogram(funPos: FunPosBase, f: .Function): DISubprogram {
     file = this.diFile(funPos.pos.file.toString());
 
     // Canonicalize the SFunctionID to handle sharing.
@@ -1740,28 +1765,88 @@ mutable class Metadata{
     };
 
     key = (file, id);
-    this.diSubprogramCache.getOrAdd(key, () -> {
-      if (this.diSubroutineTypeCache == -1) {
-        emptyIdx = this.add(() -> "!{}");
-        this.!diSubroutineTypeCache = this.add(() -> {
-          str = mutable TextOutputStream.StringTextOutputStream{};
-          str.printf1("!DISubroutineType(types: !%s)", emptyIdx);
-          str.toString()
-        });
-      };
+    this.diSubprogramCache.getOrAdd(f, () -> {
+      print_error("");
+      debug(file);
+      debug(origID);
+      debug(id);
+      debug(funPos);
+      diSubroutineType = this.diSubroutineType(
+        f.funType.returnType,
+        f.funType.params,
+      );
       DISubprogram(
         this.add(() -> {
           str = mutable TextOutputStream.StringTextOutputStream{};
           str.printf6(
-            "distinct !DISubprogram(name: %r, scope: %s, file: %s, line: %s, type: !%s, unit: %s)",
+            "distinct !DISubprogram(name: %r, scope: %s, file: %s, line: %s, type: %s, unit: %s)",
             funPos.name,
             file,
             file,
             funPos.pos.startPosition().line() + 1,
-            this.diSubroutineTypeCache,
+            diSubroutineType,
             this.diCompileUnit,
           );
           str.toString()
+        }),
+      )
+    })
+  }
+
+  mutable fun diSubroutineType(
+    returnType: Array<Type>,
+    params: Array<Type>,
+  ): DISubroutineType {
+    this.diSubroutineTypeCache.getOrAdd((returnType, params), () -> {
+      DISubroutineType(
+        this.add(() -> {
+          str = mutable TextOutputStream.StringTextOutputStream{};
+          str.write("!DISubroutineType(types: !{");
+          str.write(
+            if (returnType.isEmpty()) "null" else {
+              this.diType(returnType).toString()
+            },
+          );
+          params.each(t -> {
+            str.printf1(", %s", this.diType(Array[t]));
+          });
+          str.write("}");
+          str.toString()
+        }),
+      )
+    })
+  }
+
+  mutable fun diType(types: Array<Type>): DIType {
+    this.diTypeCache.getOrAdd(types, () -> {
+      DIType(
+        this.add(() -> {
+          types.size() match {
+          | 0 -> invariant_violation("ICE")
+          | 1 ->
+            types[0].maybeGetScalarType(this.env) match {
+            | Some(ScalarType(bitSize, bitAlignment, _llvmTypeName, _kind)) ->
+              name = types[0].exampleSClass(this.env).gclassName.id;
+              encoding = name match {
+              | "Bool" -> "DW_ATE_boolean"
+              | "Char" -> "DW_ATE_unsigned"
+              | "Int" | "Int8" | "Int16" | "Int32" -> "DW_ATE_signed"
+              | "Float" -> "DW_ATE_float"
+              | "Runtime.GCPointer" | "Runtime.NonGCPointer"
+              // TODO: Check this.
+              | "String" ->
+                "DW_ATE_address"
+              // FIXME: Proper type for objects.
+              | _ -> "!{}"
+              };
+              `!DIBasicType(name: "${name}", size: ${bitSize}, align: ${bitAlignment}, encoding: ${encoding})`
+            | None() ->
+              // FIXME: Proper type for value class values.
+              "!{}"
+            }
+          | _ -> // FIXME: Proper type using DICompositeType
+            "!{}"
+          }
         }),
       )
     })
@@ -1803,6 +1888,11 @@ mutable class Metadata{
   mutable fun diLocation(pos: Pos, funPos: FunPosBase): DILocation {
     pos match {
     | ip @ InlinedPos _ ->
+      print_error("inlining stuff:");
+      print_error("ip");
+      debug(ip);
+      print_error("funPos");
+      debug(funPos);
       inlinedAt = this.diRawLocation(funPos, ip.inlinedAt);
       this.diRawLocation(ip.origFun, ip, inlinedAt)
     | _ -> this.diRawLocation(funPos, pos)
@@ -1854,9 +1944,6 @@ mutable class .AsmOutput{
 
   // Pos of last resort, reset for each function.
   mutable pos: Pos = FileRange.builtin,
-
-  // Function being emitted.
-  mutable maybeOptinfo: ?mutable OptimizerInfo = None(),
 
   // Cached string for the LLVM type of the @skip.globals array.
   private mutable globalsType: ?String = None(),
@@ -2243,6 +2330,8 @@ mutable class .AsmOutput{
       typeString => Some("void ()"),
       typeRef => None(),
     };
+    print_error("SKIP_intializeSkip:");
+    debug(asm.id);
 
     // Dump initializer call
     asm.print("define ");
@@ -3875,7 +3964,7 @@ fun llvmWriteFunctionDefinition(
   f: Function,
   symbol: String,
   common: mutable AsmOutput,
-): void {
+): AsmDefID {
   pos = f.pos;
 
   common.resetForNewFunction(pos);
@@ -4004,16 +4093,18 @@ fun llvmWriteFunctionDefinition(
     asm.print("\"\n");
   };
 
-  _ = asm.finish();
+  asmDefID = asm.finish();
 
-  common.doneWithFunction()
+  common.doneWithFunction();
+
+  asmDefID
 }
 
 fun llvmWriteFunctionDeclaration(
   f: Function,
   symbol: String,
   common: mutable AsmOutput,
-): void {
+): AsmDefID {
   asmDefID = f.getAsmDefID();
 
   common.externs.maybeGet(symbol) match {
@@ -4045,10 +4136,12 @@ fun llvmWriteFunctionDeclaration(
     };
 
     _ = asm.finish()
-  }
+  };
+
+  asmDefID
 }
 
-fun llvmWriteFunction(f: Function, common: mutable AsmOutput): void {
+fun llvmWriteFunction(f: Function, common: mutable AsmOutput): AsmDefID {
   symbol = cppExternalName(
     f,
     common.config.exportedAsFunctions,

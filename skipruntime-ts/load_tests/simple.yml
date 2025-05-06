@@ -1,26 +1,32 @@
 config:
-  target: http://localhost:8081/v1/streams/foo
   processor: ./helpers.js
   phases:
-    - duration: 10
-      arrivalRate: 1
+    - duration: 1
+      arrivalRate: 10
   engines:
-    sse: {}
+    skip:
+      control_url: http://localhost:8081
+      stream_url: http://localhost:8080
+  target: unused
 
 scenarios:
-  - name: 'reader'
-    weight: 1
-    engine: sse
-    onMessage: handleSSEMessage
+  - name: replicate_simple_writes
+    engine: skip
     flow:
-      - open
-      - log: opened
-      - think
-  - name: 'writer'
-    weight: 10
-    flow:
-      - patch:
-          url: 'http://localhost:8081/v1/inputs/foo'
-          body: '[["foo", ["bar"]]]'
-          headers:
-            Content-Type: 'application/json'
+      - stream:
+          resource: foo
+          onUpdate: onUpdate
+      - log: "[VU {{ $uuid }}] connected"
+      - loop:
+          - write:
+              collection: foo
+              data:
+                - ["{{ $uuid }}-{{ $loopCount }}", ["true"]]
+              hook: writeHook
+        count: 10
+      - loop:
+          - log: "[VU {{ $uuid }}] Writes replicated: {{ writes_replicated }} / {{ writes_issued }}"
+          - think: 1
+        whileTrue: allWritesReplicated
+      - log: "[VU {{ $uuid }}] closing"
+      - close
