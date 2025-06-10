@@ -1,10 +1,13 @@
 function onUpdate(msg, context, events) {
-    const uuid = JSON.parse(msg.data)[0][0];
-    if (uuid in context.vars.write_timestamps) {
-        context.vars.writes_replicated = (context.vars.writes_replicated ?? 0) + 1;
-        const timeDelta = Date.now() - context.vars.write_timestamps[uuid];
-        events.emit('counter', 'skip.writes_replicated', 1);
-        events.emit('histogram', 'skip.replication_time', timeDelta);
+    events.emit('counter', 'skip.updates_received', 1);
+    for (const update of JSON.parse(msg.data)) {
+        const uuid = update[0];
+        if (uuid in (context.vars.write_timestamps ?? {})) {
+            context.vars.writes_replicated = (context.vars.writes_replicated ?? 0) + 1;
+            const timeDelta = Date.now() - context.vars.write_timestamps[uuid];
+            events.emit('counter', 'skip.writes_replicated', 1);
+            events.emit('histogram', 'skip.replication_time', timeDelta);
+        }
     }
 }
 
