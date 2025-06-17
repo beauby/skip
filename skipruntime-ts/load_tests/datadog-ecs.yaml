@@ -1,0 +1,86 @@
+Resources:
+  DatadogTaskExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "datadog-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: "datadog-secret-access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                Resource:
+                  - "<SECRET_ARN>"
+  ECSTaskDefinition:
+    Type: "AWS::ECS::TaskDefinition"
+    Properties:
+      NetworkMode: "bridge"
+      RequiresCompatibilities:
+        - "EC2"
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !GetAtt DatadogTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: "datadog-agent"
+          Image: "public.ecr.aws/datadog/agent:latest"
+          Memory: 512
+          Cpu: 100
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8126
+              HostPort: 8126
+              Protocol: "tcp"
+          environment:
+            - name: "DD_API_KEY"
+              value: "2a7996f2f6b7f3234db8ffb1949b4ceb"
+            - name: "DD_SITE"
+              value: "datadoghq.eu"
+            - name: "DD_LOGS_ENABLED"
+              value: "true"
+            - name: "DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL"
+              value: "true"
+          mountPoints:
+            - containerPath: "/var/run/docker.sock"
+              sourceVolume: "docker_sock"
+            - containerPath: "/host/sys/fs/cgroup"
+              sourceVolume: "cgroup"
+            - containerPath: "/host/proc"
+              sourceVolume: "proc"
+            - containerPath: "/opt/datadog-agent/run"
+              sourceVolume: "pointdir"
+            - containerPath: "/var/lib/docker/containers"
+              sourceVolume: "containers_root"
+      Volumes:
+        - Name: "docker_sock"
+          Host:
+            SourcePath: "/var/run/docker.sock"
+        - Name: "proc"
+          Host:
+            SourcePath: "/proc/"
+        - Name: "cgroup"
+          Host:
+            SourcePath: "/sys/fs/cgroup/"
+        - Name: "pointdir"
+          Host:
+            SourcePath: "/opt/datadog-agent/run"
+        - Name: "containers_root"
+          Host:
+            SourcePath: "/var/lib/docker/containers/"
+  ECSService:
+    Type: "AWS::ECS::Service"
+    Properties:
+      TaskDefinition: !Ref ECSTaskDefinition
+      SchedulingStrategy: "DAEMON"
+      LaunchType: "EC2"
