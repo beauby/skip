@@ -5,8 +5,8 @@ config:
       arrivalRate: 10
   engines:
     skip:
-      control_url: http://ec2-13-39-162-193.eu-west-3.compute.amazonaws.com:8081
-      stream_url: http://ec2-13-39-162-193.eu-west-3.compute.amazonaws.com:8080
+      control_url: http://ec2-15-188-59-143.eu-west-3.compute.amazonaws.com:8081
+      stream_url: http://ec2-15-188-59-143.eu-west-3.compute.amazonaws.com:8080
   target: unused
 
 scenarios:
