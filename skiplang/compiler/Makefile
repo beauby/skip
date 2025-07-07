@@ -47,6 +47,8 @@ stage1/bin/skc stage1/bin/skfmt: stage0
 	PATH=$$(realpath stage0/bin):$(PATH) skargo build $(SKARGO_ARGS) --bins --out-dir stage1/bin --target-dir stage1/target
 stage1/lib/libstd.sklib: stage0
 	PATH=$$(realpath stage0/bin):$(PATH) skargo build $(SKARGO_ARGS) --lib --out-dir stage1/lib --target-dir stage1/target --manifest-path ../prelude/Skargo.toml
+stage1/lib/libcore.sklib: stage0
+	PATH=$$(realpath stage0/bin):$(PATH) skargo build $(SKARGO_ARGS) --lib --out-dir stage1/lib --target-dir stage1/target --manifest-path ../core/Skargo.toml
 stage1/bin/skargo: stage0
 	PATH=$$(realpath stage0/bin):$(PATH) skargo build $(SKARGO_ARGS) --bins --out-dir stage1/bin --target-dir stage1/target --manifest-path ../skargo/Skargo.toml
 
@@ -54,6 +56,8 @@ stage2/bin/skc stage2/bin/skfmt: stage1
 	PATH=$$(realpath stage1/bin):$(PATH) skargo build $(SKARGO_ARGS) --bins --out-dir stage2/bin --target-dir stage2/target
 stage2/lib/libstd.sklib: stage1
 	PATH=$$(realpath stage1/bin):$(PATH) skargo build $(SKARGO_ARGS) --lib --out-dir stage2/lib --target-dir stage2/target --manifest-path ../prelude/Skargo.toml
+stage2/lib/libcore.sklib: stage1
+	PATH=$$(realpath stage1/bin):$(PATH) skargo build $(SKARGO_ARGS) --lib --out-dir stage2/lib --target-dir stage2/target --manifest-path ../core/Skargo.toml
 stage2/bin/skargo: stage1
 	PATH=$$(realpath stage1/bin):$(PATH) skargo build $(SKARGO_ARGS) --bins --out-dir stage2/bin --target-dir stage2/target --manifest-path ../skargo/Skargo.toml
 
@@ -62,6 +66,8 @@ stage3/bin/skc stage3/bin/skfmt: stage2
 	-diff -q stage2/bin/skc.ll stage3/bin/skc.ll
 stage3/lib/libstd.sklib: stage2
 	PATH=$$(realpath stage2/bin):$(PATH) skargo build $(SKARGO_ARGS) --lib --out-dir stage3/lib --target-dir stage3/target --manifest-path ../prelude/Skargo.toml
+stage3/lib/libcore.sklib: stage2
+	PATH=$$(realpath stage2/bin):$(PATH) skargo build $(SKARGO_ARGS) --lib --out-dir stage3/lib --target-dir stage3/target --manifest-path ../core/Skargo.toml
 stage3/bin/skargo: stage2
 	PATH=$$(realpath stage2/bin):$(PATH) skargo build $(SKARGO_ARGS) --bins --out-dir stage3/bin --target-dir stage3/target --manifest-path ../skargo/Skargo.toml
 

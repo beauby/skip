@@ -156,6 +156,12 @@ private class Config{
       new_dependencies.extend(dependencies);
       !dependencies = new_dependencies.chill();
     };
+    if (!dependencies.containsKey("core")) {
+      (std_path, std_metadata) = dependency_resolver.resolve_single("core");
+      new_dependencies = mutable Map["core" => (std_path, std_metadata)];
+      new_dependencies.extend(dependencies);
+      !dependencies = new_dependencies.chill();
+    };
 
     link_args = results
       .maybeGetString("link-args")

@@ -19,6 +19,7 @@ CFLAGS += $(OLEVEL) -g3
 LBT_EXISTS=$(shell [ -e $(LIB_DIR)/libbacktrace.a ] && echo 1 || echo 0 )
 
 SKIP_SRC=$(shell find src/ -name '*.sk')
+CORE_SRC=$(shell find ../core/src/ -name '*.sk')
 
 .PHONY: default
 default: $(OUT_DIR)/libbacktrace.a $(OUT_DIR)/libskip_runtime64.a preamble/preamble64.ll
@@ -33,7 +34,7 @@ wasm: $(OUT_DIR)/libskip_runtime32.a preamble/preamble32.ll
 	@echo "skargo:skc-link-lib=$(OUT_DIR)/libskip_runtime32.a"
 
 .PHONY: bootstrap
-bootstrap: $(OUT_DIR)/libstd.sklib
+bootstrap: $(OUT_DIR)/libcore.sklib $(OUT_DIR)/libstd.sklib
 
 .PHONY: $(OUT_DIR)/libbacktrace.a
 ifeq ($(LBT_EXISTS), 1)
@@ -73,12 +74,15 @@ $(OUT_DIR)/libskip_runtime32.a: $(OUT_DIR)/libskip_runtime32.o
 	@[ -d $(OUT_DIR) ] || mkdir -p $(OUT_DIR)
 	llvm-ar crs $@ $^
 
-$(OUT_DIR)/libstd.sklib: $(OUT_DIR)/libskip_runtime64.a $(OUT_DIR)/libbacktrace.a $(SKIP_SRC)
-	SKC_PREAMBLE=./preamble/preamble64.ll skc -o $@ --sklib-name std --no-std $(OLEVEL) --link-args '-lpthread' $^
+$(OUT_DIR)/libstd.sklib: $(OUT_DIR)/libskip_runtime64.a $(OUT_DIR)/libbacktrace.a $(SKIP_SRC) $(OUT_DIR)/libcore.sklib
+	SKC_PREAMBLE=./preamble/preamble64.ll skc -o $@ --sklib-name std --no-std $(OLEVEL) --link-args '-lpthread' $(OUT_DIR)/libskip_runtime64.a $(OUT_DIR)/libbacktrace.a $(SKIP_SRC) -lcore=$(OUT_DIR)/libcore.sklib
+
+$(OUT_DIR)/libcore.sklib: $(CORE_SRC)
+	skc -o $@ --sklib-name core --no-std $(OLEVEL) $^
 
 .PHONY: clean
 clean:
-	rm -f $(OUT_DIR)/libbacktrace.a $(OUT_DIR)/libskip_runtime64.a $(OUT_DIR)/libstd.sklib
+	rm -f $(OUT_DIR)/libbacktrace.a $(OUT_DIR)/libskip_runtime64.a $(OUT_DIR)/libstd.sklib $(OUT_DIR)/libcore.sklib
 	$(MAKE) -C runtime clean
 	(test ! -f libbacktrace/Makefile && echo "Warning: libbacktrace submodule or Makefile not initialized") || $(MAKE) -C libbacktrace distclean
 	find . -name 'Skargo.toml' -print0 | sed 's|Skargo.toml|target|g' | xargs -0 rm -rf
