@@ -6,3 +6,4 @@ node_modules/
 /skiplang/prelude/runtime/*.o
 /skiplang/prelude/runtime/magic.c
 /skiplang/compiler/stage*
+.git/
