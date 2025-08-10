@@ -8,7 +8,7 @@ RUN make
 COPY . /work
 WORKDIR /work/skipruntime-ts
 RUN skargo build -r --lib --manifest-path=skiplang/ffi/Skargo.toml --out-dir=/usr/lib/
-ENV SKIPRUNTIME=/work/build/skipruntime
+ENV SKIPRUNTIME=/usr/lib
 RUN make install build
 WORKDIR /work
 RUN mkdir /packages && npm pack --pack-destination=/packages \
@@ -34,5 +34,5 @@ FROM skiplabs/skip:${COMMIT_HASH}
 COPY --from=build /skiplang/compiler/stage1/bin/skc /usr/bin/
 COPY --from=build /skiplang/compiler/stage1/bin/skargo /usr/bin/
 COPY --from=build /skiplang/compiler/stage1/lib/libstd.sklib /usr/lib/
-COPY --from=build /work/build/skipruntime/libskip-runtime-ts.so /usr/lib/libskip-runtime-ts.so
+COPY --from=build /usr/lib/libskip-runtime-ts.so /usr/lib/libskip-runtime-ts.so
 COPY --from=build /packages /packages

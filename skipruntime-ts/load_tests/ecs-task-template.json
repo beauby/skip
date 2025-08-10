@@ -1,0 +1,24 @@
+{
+  "family": "skip-load-testing-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "4096",
+  "memory": "16384",
+  "containerDefinitions": [
+    {
+      "name": "skipservice-loadtest-{{IMAGE}}_{{TAG}}",
+      "image": "skiplabs/{{IMAGE}}:{{TAG}}",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        },
+        {
+          "containerPort": 8081,
+          "protocol": "tcp"
+        }
+      ]
+    }
+  ]
+}

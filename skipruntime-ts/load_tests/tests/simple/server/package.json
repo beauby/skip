@@ -10,12 +10,23 @@
   "license": "MIT",
   "description": "",
   "dependencies": {
-    "@skipruntime/core": "0.0.16",
-    "@skipruntime/wasm": "0.0.16",
-    "@skipruntime/server": "0.0.16"
+    "@skip-adapter/kafka": "file:../../../../../packages/skip-adapter-kafka-0.0.16.tgz",
+    "@skip-adapter/postgres": "file:../../../../../packages/skip-adapter-postgres-0.0.16.tgz",
+    "@skip-wasm/date": "file:../../../../../packages/skip-wasm-date-1.0.5.tgz",
+    "@skip-wasm/json": "file:../../../../../packages/skip-wasm-json-1.0.7.tgz",
+    "@skip-wasm/std": "file:../../../../../packages/skip-wasm-std-1.0.6.tgz",
+    "@skip-wasm/worker": "file:../../../../../packages/skip-wasm-worker-0.0.0.tgz",
+    "@skiplabs/skip": "file:../../../../../packages/skiplabs-skip-0.0.16.tgz",
+    "@skiplang/json": "file:../../../../../packages/skiplang-json-0.0.4.tgz",
+    "@skiplang/std": "file:../../../../../packages/skiplang-std-0.0.4.tgz",
+    "@skipruntime/core": "file:../../../../../packages/skipruntime-core-0.0.16.tgz",
+    "@skipruntime/helpers": "file:../../../../../packages/skipruntime-helpers-0.0.16.tgz",
+    "@skipruntime/native": "file:../../../../../packages/skipruntime-native-0.0.16.tgz",
+    "@skipruntime/server": "file:../../../../../packages/skipruntime-server-0.0.16.tgz",
+    "@skipruntime/wasm": "file:../../../../../packages/skipruntime-wasm-0.0.16.tgz"
   },
   "devDependencies": {
-    "@skiplabs/eslint-config": "^0.0.1",
-    "@skiplabs/tsconfig": "^0.0.1"
+    "@skiplabs/eslint-config": "file:../../../../../packages/skiplabs-eslint-config-0.0.1.tgz",
+    "@skiplabs/tsconfig": "file:../../../../../packages/skiplabs-tsconfig-0.0.1.tgz"
   }
 }
