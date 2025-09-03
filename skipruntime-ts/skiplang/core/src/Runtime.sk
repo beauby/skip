@@ -999,7 +999,7 @@ class TCollection<K: frozen & Orderable, V: frozen>(
       context.subscribe(
         session,
         SKStore.TNWatch<SKStore.Key, SKStore.File>{
-          dirName => this.hdl.dirName,
+          dirNameGetter => (_ctx) ~> this.hdl.dirName,
           identifier,
           from,
           fn => (values, tick, update) ~> {
@@ -1440,7 +1440,7 @@ fun subscribe(
       session,
       SKStore.TNWatch<SKStore.Key, SKStore.File>{
         dirNameGetter => ctx ~> {
-          resourcesCollectionsHdl.unsafeGet(ctx, definition).collection.hdl
+          resourcesCollectionsHdl.unsafeGet(ctx, definition).collection.handle()
             .dirName
         },
         identifier,
@@ -1448,10 +1448,10 @@ fun subscribe(
         fn => (values, tick, update) ~> {
           notifier.notify(
             values.map(v ->
-              (
-                JSONID::keyType(v.i0).json,
-                v.i1.map(x -> JSONFile::type(x).json),
-              )
+              TEntry{
+                key_ => Some(JSONID::keyType(v.i0).json),
+                values => v.i1.map(x -> JSONFile::type(x).json),
+              }
             ),
             `${info.session}/${tick}`,
             update,
