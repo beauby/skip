@@ -1,0 +1,17 @@
+[package]
+name = "skipruntime_server"
+version = "0.1.0"
+authors = ["Skiplabs <dev@skiplabs.io>"]
+edition = "2024"
+
+[dependencies]
+actix-web = "4.11.0"
+actix-rt = "*"
+futures = "*"
+tokio = { version = "1.47.1", features = ["macros"] }
+
+[lib]
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "foo"
