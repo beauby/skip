@@ -7,6 +7,8 @@ import {
 } from "@skipruntime/core";
 import type { CollectionUpdate, Entry, Json } from "@skipruntime/core";
 
+const kHeartbeatIntervalMs = 60 * 1000;
+
 export function controlService(service: ServiceInstance): express.Express {
   const app = express();
   app.use(express.json({ strict: false }));
@@ -113,6 +115,7 @@ export function streamingService(service: ServiceInstance): express.Express {
       return;
     }
     try {
+      let heartbeatInterval;
       const uuid = req.params.uuid;
       const subscriptionID = service.subscribe(uuid, {
         subscribed: () => {
@@ -121,6 +124,7 @@ export function streamingService(service: ServiceInstance): express.Express {
           res.set("Cache-Control", "no-cache");
           res.status(200);
           res.flushHeaders();
+          heartbeatInterval = setInterval(() => res.send(":\n\n"), kHeartbeatIntervalMs);
         },
         notify: (update: CollectionUpdate<string, Json>) => {
           if (update.isInitial) {
@@ -132,6 +136,7 @@ export function streamingService(service: ServiceInstance): express.Express {
           res.write(`data: ${JSON.stringify(update.values)}\n\n`);
         },
         close: () => {
+          clearInterval(heartbeatInterval);
           res.end();
         },
       });
